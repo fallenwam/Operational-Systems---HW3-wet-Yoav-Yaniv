@@ -4,10 +4,8 @@
 #include <pthread.h>
 #include "request.h"
 #include "log.h"
-#include <pthread.h>
 
 #define MAX_THREADS 100
-#define MAX_QUEUE_SIZE 1000
 
 //
 // server.c: A very, very simple web server
@@ -23,7 +21,7 @@
 
 // A synchronized request queue
 typedef struct {
-    int buffer[MAX_QUEUE_SIZE]; // Circular buffer to hold connfds
+    int* buffer; // Circular buffer to hold connfds
     int head;
     int tail;
     int count;                  // Number of items currently in queue
@@ -44,14 +42,20 @@ typedef struct {
     int thread_id;
 } thread_arg_t;
 
-void getargs(int *port, int argc, char *argv[])
+void getargs(int *port, int *threads, int *queue_size, int *debug_sleep,
+                     int argc, char *argv[])
 {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <port>\n", argv[0]);
+    if (argc < 5) {
+        fprintf(stderr, "Usage: %s <portnum> <threads> <queue_size> "
+                        "<debug_sleep_time>\n", argv[0]);
         exit(1);
     }
     *port = atoi(argv[1]);
+    *threads = atoi(argv[2]);
+    *queue_size = atoi(argv[3]);
+    *debug_sleep = atoi(argv[4]);
 }
+
 // TODO: HW3 — Initialize thread pool and request queue
 // This server currently handles all requests in the main thread.
 // You must implement a thread pool (fixed number of worker threads)
@@ -59,6 +63,7 @@ void getargs(int *port, int argc, char *argv[])
 
 // @@@@@@ Defining the Queue structure
 void queue_init(RequestQueue *q, int size) {
+    q->buffer = (int *)malloc(sizeof(int) * size);
     q->head = 0;
     q->tail = 0;
     q->count = 0;

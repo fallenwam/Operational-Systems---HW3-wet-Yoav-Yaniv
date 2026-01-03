@@ -1,21 +1,56 @@
 #include <stdlib.h>
 #include <string.h>
 #include "log.h"
+#include <pthread.h>
+#include <stdbool.h>
+
 
 // Opaque struct definition
 struct Server_Log {
     // TODO: Implement internal log storage (e.g., dynamic buffer, linked list, etc.)
+    char *buffer;
+    int size;
+    int capacity;
+
+    pthread_mutex_t mutex;
+    pthread_cond_t cond_readers;
+    pthread_cond_t cond_writers;
+
+    int readers_count; //how many currently reading
+    bool writers_active; // is a writer writing
+    int writers_waiting; //how many writers waiting
 };
 
 // Creates a new server log instance (stub)
 server_log create_log() {
-    // TODO: Allocate and initialize internal log structure
-    return (server_log)malloc(sizeof(struct Server_Log));
+    server_log log = (server_log)malloc(sizeof(struct Server_Log));
+    if(log == NULL){
+        return NULL;
+    } //malloc failed
+
+    log->capacity = 1024;
+    log->buffer = (char*)malloc(log->capacity);
+
+    if(log->buffer == NULL){
+        free(log);
+        return NULL;
+    } //malloc failed
+
+    log->buffer[0] = '\0'; //start with empty string
+    log->size = 0;
+    log->readers_count = 0;
+    log->writers_active = false;
+    log->writers_waiting = 0;
+
+    pthread_mutex_init(&log->mutex, NULL);
+    pthread_cond_init(&log->cond_readers, NULL);
+    pthread_cond_init(&log->cond_writers, NULL);
+    return log;
 }
 
 // Destroys and frees the log (stub)
 void destroy_log(server_log log) {
-    // TODO: Free all internal resources used by the log
+    free(log->buffer);
     free(log);
 }
 
@@ -24,17 +59,94 @@ int get_log(server_log log, char** dst) {
     // TODO: Return the full contents of the log as a dynamically allocated string
     // This function should handle concurrent access
 
-    const char* dummy = "Log is not implemented.\n";
-    int len = strlen(dummy);
-    *dst = (char*)malloc(len + 1); // Allocate for caller
-    if (*dst != NULL) {
-        strcpy(*dst, dummy);
+    pthread_mutex_lock(&log->mutex);
+
+    while(log->writers_active || log->writers_waiting > 0){
+        pthread_cond_wait(&log->cond_readers, &log->mutex);
     }
-    return len;
+
+    log->readers_count++;
+    pthread_mutex_unlock(&log->mutex);
+
+//    char* copy = (char*)malloc(log->size + 1);
+//    if(copy == NULL){
+//        pthread_mutex_lock(&log->mutex);
+//        log->readers_count--;
+//        if(log->readers_count == 0 && log->writers_waiting > 0){
+//            pthread_cond_signal(&log->cond_writers);
+//        }
+//        pthread_mutex_unlock(&log->mutex);
+//        return -1;
+//    }
+
+    memcpy(dst, log->buffer, log->size);
+    pthread_mutex_lock(&log->mutex);
+    log->readers_count--;
+
+    if(log->readers_count == 0){
+        pthread_cond_signal(&log->cond_writers);
+    }
+
+    pthread_mutex_unlock(&log->mutex);
+    return log->size;
 }
 
 // Appends a new entry to the log (no-op stub)
 void add_to_log(server_log log, const char* data, int data_len) {
     // TODO: Append the provided data to the log
     // This function should handle concurrent access
+
+    if(log == NULL || data == NULL) return;
+
+    pthread_mutex_lock(&log->mutex);
+
+    log->writers_waiting++;
+    while(log->readers_count > 0 || log->writers_active){
+        pthread_cond_wait(&log->cond_writers, &log->mutex);
+    } //add to waiting queue
+
+    log->writers_waiting--;
+    log->writers_active = true;
+
+    pthread_mutex_unlock(&log->mutex);
+
+    //TODO: go over this section:
+    // 5. Resize Buffer if needed (Critical Fix)
+    int required_size = log->size + data_len + 1; // +1 for null terminator
+    if (required_size > log->capacity) {
+        // Double the capacity (or set to required if doubling isn't enough)
+        int new_capacity = log->capacity * 2;
+        if (new_capacity < required_size) new_capacity = required_size;
+
+        char *new_buf = realloc(log->buffer, new_capacity);
+        if (new_buf == NULL) {
+            // If realloc fails, we are in trouble.
+            // For now, clean up state and exit to avoid deadlock
+            log->writers_active = 0;
+            // Signal others so they aren't stuck forever
+            if (log->writers_waiting > 0) pthread_cond_signal(&log->cond_writers);
+            else pthread_cond_broadcast(&log->cond_readers);
+            pthread_mutex_unlock(&log->mutex);
+            return;
+        }
+        log->buffer = new_buf;
+        log->capacity = new_capacity;
+    }
+
+
+    memcpy(log->buffer + log->size, data, data_len);
+    log->size += data_len;
+    log->buffer[log->size] = '\0';
+
+    pthread_mutex_lock(&log->mutex);
+    log->writers_active = false;
+
+    if(log->writers_waiting > 0){
+        pthread_cond_signal(&log->cond_writers);
+    } else{
+        pthread_cond_broadcast(&log->cond_readers);
+    }
+
+    pthread_mutex_unlock(&log->mutex);
+
 }
