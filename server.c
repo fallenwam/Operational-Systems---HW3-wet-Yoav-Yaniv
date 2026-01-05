@@ -147,19 +147,20 @@ void *thread_main(void *arg) {
 
 int main(int argc, char *argv[])
 {
-    int listenfd, connfd, port, clientlen;
+    int listenfd, connfd, port, clientlen, max_thread, queue_size, debug_sleep;
     struct sockaddr_in clientaddr;
-    pthread_t tid[MAX_THREADS];
 
-    getargs(&port, argc, argv);
+    getargs(&port, &max_thread, &queue_size, &debug_sleep, argc, argv);
+
+    pthread_t* tid = (pthread_t*)malloc(sizeof(pthread_t) * max_thread);
 
     // 1. Initialize Log and Queue
     log_global = create_log();
-    queue_init(&q, MAX_QUEUE_SIZE);
+    queue_init(&q, queue_size);
 
     // 2. Create Thread Pool
     // Instead of fork(), we use pthread_create
-    for(int i = 0; i < MAX_THREADS; i++) {
+    for(int i = 0; i < max_thread; i++) {
         thread_arg_t *arg = malloc(sizeof(thread_arg_t));
         arg->thread_id = i;
         pthread_create(&tid[i], NULL, thread_main, (void *)arg);
