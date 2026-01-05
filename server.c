@@ -5,8 +5,6 @@
 #include "request.h"
 #include "log.h"
 
-#define MAX_THREADS 100
-
 //
 // server.c: A very, very simple web server
 //
@@ -19,9 +17,13 @@
 
 // Parses command-line arguments
 
-// A synchronized request queue
+typedef struct{
+    int connfd;
+    time_stats time;
+} QueueElement;
+
 typedef struct {
-    int* buffer; // Circular buffer to hold connfds
+    QueueElement* buffer; // Circular buffer to hold connfds
     int head;
     int tail;
     int count;                  // Number of items currently in queue
@@ -33,7 +35,7 @@ typedef struct {
     pthread_cond_t not_full;
 } RequestQueue;
 
-// Global queue (simplifies access for this example)
+// Global queue and log
 RequestQueue q;
 server_log log_global; 
 
@@ -56,14 +58,8 @@ void getargs(int *port, int *threads, int *queue_size, int *debug_sleep,
     *debug_sleep = atoi(argv[4]);
 }
 
-// TODO: HW3 — Initialize thread pool and request queue
-// This server currently handles all requests in the main thread.
-// You must implement a thread pool (fixed number of worker threads)
-// that process requests from a synchronized queue.
-
-// @@@@@@ Defining the Queue structure
-void queue_init(RequestQueue *q, int size) {
-    q->buffer = (int *)malloc(sizeof(int) * size);
+void queue_init(RequestQueue *q, int size, ) {
+    q->buffer = malloc(sizeof(QueueElement) * size);
     q->head = 0;
     q->tail = 0;
     q->count = 0;
@@ -73,7 +69,7 @@ void queue_init(RequestQueue *q, int size) {
     pthread_cond_init(&q->not_full, NULL);
 }
 
-void enqueue(RequestQueue *q, int connfd) {
+void enqueue(RequestQueue *q, int connfd, struct timeval arrival) {
     pthread_mutex_lock(&q->mutex);
     
     // If queue is full, wait until a slot opens up
@@ -82,7 +78,8 @@ void enqueue(RequestQueue *q, int connfd) {
     }
 
     // Add to tail
-    q->buffer[q->tail] = connfd;
+    q->buffer[q->tail].connfd = connfd;
+    q->buffer[q->tail].time.task_arrival = arrival;
     q->tail = (q->tail + 1) % q->size;
     q->count++;
 
@@ -92,7 +89,7 @@ void enqueue(RequestQueue *q, int connfd) {
     pthread_mutex_unlock(&q->mutex);
 }
 
-int dequeue(RequestQueue *q) {
+QueueElement dequeue(RequestQueue *q) {
     pthread_mutex_lock(&q->mutex);
 
     // If queue is empty, wait until a request arrives
@@ -101,15 +98,17 @@ int dequeue(RequestQueue *q) {
     }
 
     // Remove from head
-    int connfd = q->buffer[q->head];
+    QueueElement element = q->buffer[q->head];
     q->head = (q->head + 1) % q->size;
     q->count--;
+
+    gettimeofday(&element.time.task_dispatch,NULL);
 
     // Signal that the queue is not full anymore
     pthread_cond_signal(&q->not_full);
 
     pthread_mutex_unlock(&q->mutex);
-    return connfd;
+    return element;
 }
 
 void *thread_main(void *arg) {
@@ -123,21 +122,18 @@ void *thread_main(void *arg) {
     t_stats->dynm_req = 0;
     t_stats->total_req = 0;
 
-    time_stats dum; // Dummy time stats if needed by your API
-
     while (1) {
         // 1. Wait for a request and remove it from queue
-        int connfd = dequeue(&q);
+        QueueElement request = dequeue(&q);
 
-
-        printf("Thread ID %d is handling connection %d\n", t_args->thread_id, connfd);
+        printf("Thread ID %d is handling connection %d\n", t_args->thread_id, request.connfd);
 
         // 2. Handle the request
         // The handling logic (parsing HTTP, etc) happens here
-        requestHandle(connfd, dum, t_stats, log_global);
+        requestHandle(request.connfd, request.time, t_stats, log_global);
 
         // 3. Close connection
-        Close(connfd);
+        Close(request.connfd);
     }
 
     free(t_args);
@@ -170,17 +166,16 @@ int main(int argc, char *argv[])
 
     while (1) {
         clientlen = sizeof(clientaddr);
-        
-        // This blocks until a client connects
-        connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t*) &clientlen);
+        struct timeval arrival;
 
-        // TODO: HW3 — Record the request arrival time here if needed
-        // struct timeval arrival;
-        // gettimeofday(&arrival, NULL);
+        // This blocks until a client connects
+
+        connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t*) &clientlen);
+        gettimeofday(&arrival, NULL);
 
         // 3. Offload work to thread pool
         // Main thread does NOT handle request. It only enqueues.
-        enqueue(&q, connfd);
+        enqueue(&q, connfd, arrival);
     }
     
     // Cleanup (unreachable in this simple server as while(1) never breaks)

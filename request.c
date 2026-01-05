@@ -157,6 +157,8 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
             body_len = sbuf.st_size;
             body_content = requestPrepareStatic(filename, body_len);
             // Fixed Content-Length format string and sprintf overlap
+
+            t_stats->stat_req++;
             sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Content-Length: %d\r\n", body_len);
@@ -168,12 +170,25 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
             }
             body_content = requestPrepareDynamic(filename, cgiargs, &body_len);
 
+            t_stats->dynm_req++;
             sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
         }
-    } else if (strcasecmp(method, "POST") == 0) {
-        body_len = get_log(log, (char**)&body_content);
 
+        gettimeofday(&tm_stats.log_enter, NULL);
+        gettimeofday(&tm_stats.log_exit, NULL); // Temporary capture for the string
+        char log_entry[MAXBUF];
+        log_entry[0] = '\0';
+        append_stats(log_entry,t_stats,tm_stats);
+        add_to_log(log, log_entry, strlen(log_entry));
+        gettimeofday(&tm_stats.log_exit, NULL);
+
+    } else if (strcasecmp(method, "POST") == 0) {
+        gettimeofday(&tm_stats.log_enter,NULL);
+        body_len = get_log(log, (char**)&body_content);
+        gettimeofday(&tm_stats.log_exit,NULL);
+
+        t_stats->post_req++;
         sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
         sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
         sprintf(resp_headers + strlen(resp_headers), "Content-Length: %d\r\n", body_len);
@@ -182,6 +197,9 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
         requestError(fd, method, "501", "Not Implemented", "OS-HW3 Server does not implement this method", tm_stats, t_stats);
         return;
     }
+
+    t_stats->total_req++;
+
     // --- SEND ---
     int total_header_len = append_stats(resp_headers, t_stats, tm_stats);
     Rio_writen(fd, resp_headers, total_header_len);

@@ -59,6 +59,8 @@ int get_log(server_log log, char** dst) {
     // TODO: Return the full contents of the log as a dynamically allocated string
     // This function should handle concurrent access
 
+    if(log == NULL || dst == NULL) return -1;
+
     pthread_mutex_lock(&log->mutex);
 
     while(log->writers_active || log->writers_waiting > 0){
@@ -68,22 +70,23 @@ int get_log(server_log log, char** dst) {
     log->readers_count++;
     pthread_mutex_unlock(&log->mutex);
 
-//    char* copy = (char*)malloc(log->size + 1);
-//    if(copy == NULL){
-//        pthread_mutex_lock(&log->mutex);
-//        log->readers_count--;
-//        if(log->readers_count == 0 && log->writers_waiting > 0){
-//            pthread_cond_signal(&log->cond_writers);
-//        }
-//        pthread_mutex_unlock(&log->mutex);
-//        return -1;
-//    }
+    char* copy = (char*)malloc(log->size + 1);
+    if(copy == NULL){
+        pthread_mutex_lock(&log->mutex);
+        log->readers_count--;
+        if(log->readers_count == 0 || log->writers_waiting > 0){
+            pthread_cond_signal(&log->cond_writers);
+        }
+        pthread_mutex_unlock(&log->mutex);
+        return -1;
+    }
 
-    memcpy(dst, log->buffer, log->size);
+    memcpy(copy, log->buffer, log->size);
+    *dst = copy;
     pthread_mutex_lock(&log->mutex);
     log->readers_count--;
 
-    if(log->readers_count == 0){
+    if(log->readers_count == 0 || log->writers_waiting > 0){
         pthread_cond_signal(&log->cond_writers);
     }
 
@@ -108,7 +111,8 @@ void add_to_log(server_log log, const char* data, int data_len) {
     log->writers_waiting--;
     log->writers_active = true;
 
-    pthread_mutex_unlock(&log->mutex);
+//    possibly uncomment
+//    pthread_mutex_unlock(&log->mutex);
 
     //TODO: go over this section:
     // 5. Resize Buffer if needed (Critical Fix)
@@ -138,7 +142,8 @@ void add_to_log(server_log log, const char* data, int data_len) {
     log->size += data_len;
     log->buffer[log->size] = '\0';
 
-    pthread_mutex_lock(&log->mutex);
+//    possibly uncomment
+//    pthread_mutex_lock(&log->mutex);
     log->writers_active = false;
 
     if(log->writers_waiting > 0){
