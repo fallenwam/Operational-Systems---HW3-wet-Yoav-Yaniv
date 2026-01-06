@@ -3,6 +3,7 @@
 #include "log.h"
 #include <pthread.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 // Opaque struct definition
 struct Server_Log
@@ -166,7 +167,7 @@ void add_to_log(server_log log, const char *data, int data_len)
 
     if (log->sleep > 0)
     {
-        sleep(log->sleep * 1e6);
+        sleep(log->sleep);
     }
     // last chance to updade the dispatch
     memcpy(log->buffer + log->size, data, data_len);
@@ -187,4 +188,8 @@ void add_to_log(server_log log, const char *data, int data_len)
     }
 
     pthread_mutex_unlock(&log->mutex);
+}
+
+int get_log_sleep(server_log log){
+    return log->sleep;
 }

@@ -25,4 +25,6 @@ int get_log(server_log log, char** dst);
 // Appends a new entry to the log
 void add_to_log(server_log log, const char* data, int data_len);
 
+int get_log_sleep(server_log log);
+
 #endif // SERVER_LOG_H

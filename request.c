@@ -177,7 +177,8 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
         }
 
         gettimeofday(&tm_stats.log_enter, NULL);
-        gettimeofday(&tm_stats.log_exit, NULL); // Temporary capture for the string
+        gettimeofday(&tm_stats.log_exit, NULL);
+        tm_stats.log_exit.tv_sec += get_log_sleep(log);
         char log_entry[MAXBUF];
         log_entry[0] = '\0';
         append_stats(log_entry,t_stats,tm_stats);
