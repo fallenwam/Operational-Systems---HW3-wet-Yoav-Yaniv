@@ -101,6 +101,10 @@ int get_log(server_log log, char **dst)
     }
 
     memcpy(copy, log->buffer, log->size);
+    if (log->sleep > 0)
+    {
+        sleep(log->sleep);
+    }
     *dst = copy;
     pthread_mutex_lock(&log->mutex);
     log->readers_count--;
