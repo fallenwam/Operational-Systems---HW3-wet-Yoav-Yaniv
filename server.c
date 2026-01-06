@@ -117,6 +117,9 @@ void *thread_main(void *arg) {
     // Initialize stats for this specific thread
     // Note: We allocate this ONCE per thread, not per request
     threads_stats t_stats = malloc(sizeof(struct Threads_stats));
+    if(t_stats == NULL){
+        exit(-1);
+    }
     t_stats->id = t_args->thread_id;
     t_stats->stat_req = 0;
     t_stats->dynm_req = 0;
@@ -159,6 +162,9 @@ int main(int argc, char *argv[])
     // Instead of fork(), we use pthread_create
     for(int i = 0; i < max_thread; i++) {
         thread_arg_t *arg = malloc(sizeof(thread_arg_t));
+        if(arg == NULL){
+            exit(-1);
+        }
         arg->thread_id = i+1;
         pthread_create(&tid[i], NULL, thread_main, (void *)arg);
     }

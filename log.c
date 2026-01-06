@@ -29,7 +29,7 @@ server_log create_log(int sleepTime)
     server_log log = (server_log)malloc(sizeof(struct Server_Log));
     if (log == NULL)
     {
-        return NULL;
+        exit(-1);
     } // malloc failed
 
     log->capacity = 1024;
@@ -38,7 +38,7 @@ server_log create_log(int sleepTime)
     if (log->buffer == NULL)
     {
         free(log);
-        return NULL;
+        exit(-1);
     } // malloc failed
 
     log->buffer[0] = '\0'; // start with empty string
