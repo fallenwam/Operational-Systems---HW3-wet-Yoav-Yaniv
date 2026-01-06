@@ -58,7 +58,7 @@ void getargs(int *port, int *threads, int *queue_size, int *debug_sleep,
     *debug_sleep = atoi(argv[4]);
 }
 
-void queue_init(RequestQueue *q, int size, ) {
+void queue_init(RequestQueue *q, int size) {
     q->buffer = malloc(sizeof(QueueElement) * size);
     q->head = 0;
     q->tail = 0;
@@ -121,6 +121,7 @@ void *thread_main(void *arg) {
     t_stats->stat_req = 0;
     t_stats->dynm_req = 0;
     t_stats->total_req = 0;
+    t_stats->post_req = 0;
 
     while (1) {
         // 1. Wait for a request and remove it from queue
@@ -151,14 +152,14 @@ int main(int argc, char *argv[])
     pthread_t* tid = (pthread_t*)malloc(sizeof(pthread_t) * max_thread);
 
     // 1. Initialize Log and Queue
-    log_global = create_log();
+    log_global = create_log(debug_sleep);
     queue_init(&q, queue_size);
 
     // 2. Create Thread Pool
     // Instead of fork(), we use pthread_create
     for(int i = 0; i < max_thread; i++) {
         thread_arg_t *arg = malloc(sizeof(thread_arg_t));
-        arg->thread_id = i;
+        arg->thread_id = i+1;
         pthread_create(&tid[i], NULL, thread_main, (void *)arg);
     }
 

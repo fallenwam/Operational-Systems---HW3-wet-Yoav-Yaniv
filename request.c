@@ -125,6 +125,7 @@ void* requestPrepareStatic(char *filename, int filesize)
 
 void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_log log)
 {
+    t_stats->total_req++;
     int is_static = 0;
     struct stat sbuf;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
@@ -181,7 +182,7 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
         log_entry[0] = '\0';
         append_stats(log_entry,t_stats,tm_stats);
         add_to_log(log, log_entry, strlen(log_entry));
-        gettimeofday(&tm_stats.log_exit, NULL);
+        gettimeofday(&tm_stats.log_exit, NULL); // TODO: handle wrong log_exit in the log
 
     } else if (strcasecmp(method, "POST") == 0) {
         gettimeofday(&tm_stats.log_enter,NULL);
@@ -198,7 +199,6 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
         return;
     }
 
-    t_stats->total_req++;
 
     // --- SEND ---
     int total_header_len = append_stats(resp_headers, t_stats, tm_stats);
