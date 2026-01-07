@@ -4,7 +4,21 @@
 #include <pthread.h>
 #include "request.h"
 #include "log.h"
+#include <sys/resource.h>
+#include <limits.h>
 
+int get_max_thread_limit()
+{
+    struct rlimit rl;
+
+    // RLIMIT_NPROC: The max number of processes (threads on Linux)
+    // for the real user ID of the calling process.
+    if (getrlimit(RLIMIT_NPROC, &rl) == 0)
+    {
+        return (int)rl.rlim_max;
+    }
+    return INT_MAX;
+}
 //
 // server.c: A very, very simple web server
 //
@@ -28,7 +42,7 @@ typedef struct {
     int tail;
     int count;                  // Number of items currently in queue
     int size;                   // Max capacity (MAX_QUEUE_SIZE)
-    
+
     // Synchronization primitives
     pthread_mutex_t mutex;
     pthread_cond_t not_empty;
@@ -37,7 +51,7 @@ typedef struct {
 
 // Global queue and log
 RequestQueue q;
-server_log log_global; 
+server_log log_global;
 
 // Arguments to pass to worker threads if needed
 typedef struct {
@@ -45,12 +59,13 @@ typedef struct {
 } thread_arg_t;
 
 void getargs(int *port, int *threads, int *queue_size, int *debug_sleep,
-                     int argc, char *argv[])
+             int argc, char *argv[])
 {
     if (argc < 5) {
         fprintf(stderr, "Usage: %s <portnum> <threads> <queue_size> "
-                        "<debug_sleep_time>\n", argv[0]);
-        exit(1);
+                        "<debug_sleep_time>\n",
+                argv[0]);
+        exit(0);
     }
     *port = atoi(argv[1]);
     *threads = atoi(argv[2]);
@@ -71,7 +86,7 @@ void queue_init(RequestQueue *q, int size) {
 
 void enqueue(RequestQueue *q, int connfd, struct timeval arrival) {
     pthread_mutex_lock(&q->mutex);
-    
+
     // If queue is full, wait until a slot opens up
     while (q->count == q->size) {
         pthread_cond_wait(&q->not_full, &q->mutex);
@@ -85,7 +100,7 @@ void enqueue(RequestQueue *q, int connfd, struct timeval arrival) {
 
     // Signal that the queue is not empty anymore
     pthread_cond_signal(&q->not_empty);
-    
+
     pthread_mutex_unlock(&q->mutex);
 }
 
@@ -113,12 +128,13 @@ QueueElement dequeue(RequestQueue *q) {
 
 void *thread_main(void *arg) {
     thread_arg_t *t_args = (thread_arg_t *)arg;
-    
+
     // Initialize stats for this specific thread
     // Note: We allocate this ONCE per thread, not per request
     threads_stats t_stats = malloc(sizeof(struct Threads_stats));
-    if(t_stats == NULL){
-        exit(-1);
+    if (t_stats == NULL)
+    {
+        exit(0);
     }
     t_stats->id = t_args->thread_id;
     t_stats->stat_req = 0;
@@ -144,7 +160,6 @@ void *thread_main(void *arg) {
     return NULL;
 }
 
-
 int main(int argc, char *argv[])
 {
     int listenfd, connfd, port, clientlen, max_thread, queue_size, debug_sleep;
@@ -152,8 +167,15 @@ int main(int argc, char *argv[])
 
     getargs(&port, &max_thread, &queue_size, &debug_sleep, argc, argv);
 
-    pthread_t* tid = (pthread_t*)malloc(sizeof(pthread_t) * max_thread);
-
+    if (port <= 0 || 65535< port || max_thread < 1 || 
+        get_max_thread_limit() < max_thread || queue_size < 1)
+    {
+        exit(0);
+    }
+    pthread_t *tid = (pthread_t *)malloc(sizeof(pthread_t) * max_thread);
+    if(tid == NULL){
+        exit(0);
+    }
     // 1. Initialize Log and Queue
     log_global = create_log(debug_sleep);
     queue_init(&q, queue_size);
@@ -162,10 +184,11 @@ int main(int argc, char *argv[])
     // Instead of fork(), we use pthread_create
     for(int i = 0; i < max_thread; i++) {
         thread_arg_t *arg = malloc(sizeof(thread_arg_t));
-        if(arg == NULL){
-            exit(-1);
+        if (arg == NULL)
+        {
+            exit(0);
         }
-        arg->thread_id = i+1;
+        arg->thread_id = i + 1;
         pthread_create(&tid[i], NULL, thread_main, (void *)arg);
     }
 
@@ -184,7 +207,7 @@ int main(int argc, char *argv[])
         // Main thread does NOT handle request. It only enqueues.
         enqueue(&q, connfd, arrival);
     }
-    
+
     // Cleanup (unreachable in this simple server as while(1) never breaks)
     destroy_log(log_global);
 }

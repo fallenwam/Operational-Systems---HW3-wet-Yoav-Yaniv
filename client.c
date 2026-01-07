@@ -75,7 +75,7 @@ int main(int argc, char *argv[])
     // Validate input arguments
     if (argc != 5) {
         fprintf(stderr, "Usage: %s <host> <port> <filename> <method>\n", argv[0]);
-        exit(1);
+        exit(0);
     }
 
     // Parse command-line arguments
@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
     clientfd = Open_clientfd(host, port);
     if (clientfd < 0) {
         fprintf(stderr, "Error connecting to %s:%d\n", host, port);
-        exit(1);
+        exit(0);
     }
 
     printf("Connected to server. clientfd = %d\n", clientfd);
