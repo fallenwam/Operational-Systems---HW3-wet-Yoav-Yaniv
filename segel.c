@@ -31,7 +31,6 @@ void app_error(char *msg) /* application error */
 }
 /* $end errorfuns */
 
-
 int Gethostname(char *name, size_t len) 
 {
   int rc;
@@ -86,7 +85,6 @@ pid_t WaitPid(pid_t pid, int *status, int options)
 	if ((pid = waitpid(pid, status, options)) < 0) unix_error("Wait error");
 	return pid;
 }
-
 
 /* $end wait */
 
@@ -559,10 +557,19 @@ int Open_clientfd(char *hostname, int port)
 int Open_listenfd(int port) 
 {
     int rc;
-
-    if ((rc = open_listenfd(port)) < 0)
-        unix_error("Open_listenfd error");
-    return rc;
+    while (1)
+    {
+        rc = open_listenfd(port);
+        if (rc >= 0)
+        {
+            printf("Success! Server listening on port %d\n", port);
+            return rc;
+        }
+        else
+        {
+            port++;
+            if (port > 65535)
+                port = 1024;
+        }
+    }
 }
-
-

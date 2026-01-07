@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 
     getargs(&port, &max_thread, &queue_size, &debug_sleep, argc, argv);
 
-    if (port <= 0 || 65535< port || max_thread < 1 || 
+    if (port <= 1023 || 65535 < port || max_thread < 1 || 
         get_max_thread_limit() < max_thread || queue_size < 1)
     {
         exit(0);
