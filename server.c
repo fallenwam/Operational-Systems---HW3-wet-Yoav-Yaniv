@@ -41,6 +41,7 @@ typedef struct {
     int head;
     int tail;
     int count;                  // Number of items currently in queue
+    int working_count;
     int size;                   // Max capacity (MAX_QUEUE_SIZE)
 
     // Synchronization primitives
@@ -58,7 +59,7 @@ typedef struct {
     int thread_id;
 } thread_arg_t;
 
-void getargs(int *port, int *threads, int *queue_size, int *debug_sleep,
+void getargs(int *port, int *threads, int *queue_size, float *debug_sleep,
              int argc, char *argv[])
 {
     if (argc < 5) {
@@ -70,14 +71,19 @@ void getargs(int *port, int *threads, int *queue_size, int *debug_sleep,
     *port = atoi(argv[1]);
     *threads = atoi(argv[2]);
     *queue_size = atoi(argv[3]);
-    *debug_sleep = atoi(argv[4]);
+    *debug_sleep = atof(argv[4]);
 }
 
 void queue_init(RequestQueue *q, int size) {
     q->buffer = malloc(sizeof(QueueElement) * size);
+    if(q->buffer == NULL){
+        perror("malloc failed in queue_init");
+        exit(-1);
+    } //malloc failed
     q->head = 0;
     q->tail = 0;
     q->count = 0;
+    q->working_count = 0;
     q->size = size;
     pthread_mutex_init(&q->mutex, NULL);
     pthread_cond_init(&q->not_empty, NULL);
@@ -88,7 +94,7 @@ void enqueue(RequestQueue *q, int connfd, struct timeval arrival) {
     pthread_mutex_lock(&q->mutex);
 
     // If queue is full, wait until a slot opens up
-    while (q->count == q->size) {
+    while (q->count + q->working_count == q->size) {
         pthread_cond_wait(&q->not_full, &q->mutex);
     }
 
@@ -116,11 +122,9 @@ QueueElement dequeue(RequestQueue *q) {
     QueueElement element = q->buffer[q->head];
     q->head = (q->head + 1) % q->size;
     q->count--;
+    q->working_count++;
 
     gettimeofday(&element.time.task_dispatch,NULL);
-
-    // Signal that the queue is not full anymore
-    pthread_cond_signal(&q->not_full);
 
     pthread_mutex_unlock(&q->mutex);
     return element;
@@ -134,19 +138,21 @@ void *thread_main(void *arg) {
     threads_stats t_stats = malloc(sizeof(struct Threads_stats));
     if (t_stats == NULL)
     {
-        exit(0);
+        perror("malloc failed in thread_main");
+        exit(-1);
     }
     t_stats->id = t_args->thread_id;
     t_stats->stat_req = 0;
     t_stats->dynm_req = 0;
     t_stats->total_req = 0;
     t_stats->post_req = 0;
+    free(t_args);
 
     while (1) {
         // 1. Wait for a request and remove it from queue
         QueueElement request = dequeue(&q);
 
-        printf("Thread ID %d is handling connection %d\n", t_args->thread_id, request.connfd);
+        printf("Thread ID %d is handling connection %d\n", t_stats->id, request.connfd);
 
         // 2. Handle the request
         // The handling logic (parsing HTTP, etc) happens here
@@ -154,15 +160,21 @@ void *thread_main(void *arg) {
 
         // 3. Close connection
         Close(request.connfd);
+
+        pthread_mutex_lock(&q.mutex);
+
+        q.working_count--;
+        pthread_cond_signal(&q.not_full);
+        pthread_mutex_unlock(&q.mutex);
     }
 
-    free(t_args);
     return NULL;
 }
 
 int main(int argc, char *argv[])
 {
-    int listenfd, connfd, port, clientlen, max_thread, queue_size, debug_sleep;
+    int listenfd, connfd, port, clientlen, max_thread, queue_size;
+    float debug_sleep;
     struct sockaddr_in clientaddr;
 
     getargs(&port, &max_thread, &queue_size, &debug_sleep, argc, argv);
@@ -170,11 +182,14 @@ int main(int argc, char *argv[])
     if (port <= 1023 || 65535 < port || max_thread < 1 || 
         get_max_thread_limit() < max_thread || queue_size < 1)
     {
+        fprintf(stderr, "Usage: %s <portnum> <threads> <queue_size> <debug_sleep_time>\n",
+                argv[0]);
         exit(0);
     }
     pthread_t *tid = (pthread_t *)malloc(sizeof(pthread_t) * max_thread);
     if(tid == NULL){
-        exit(0);
+        perror("tid malloc failed in main");
+        exit(-1);
     }
     // 1. Initialize Log and Queue
     log_global = create_log(debug_sleep);
@@ -186,6 +201,7 @@ int main(int argc, char *argv[])
         thread_arg_t *arg = malloc(sizeof(thread_arg_t));
         if (arg == NULL)
         {
+            perror("arg malloc failed in main");
             exit(0);
         }
         arg->thread_id = i + 1;
@@ -208,6 +224,7 @@ int main(int argc, char *argv[])
         enqueue(&q, connfd, arrival);
     }
 
-    // Cleanup (unreachable in this simple server as while(1) never breaks)
+    // Cleanup
+    free(q.buffer);
     destroy_log(log_global);
 }

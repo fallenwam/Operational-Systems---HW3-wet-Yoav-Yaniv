@@ -21,6 +21,25 @@ int append_stats(char* buf, threads_stats t_stats, time_stats tm_stats) {
     return offset;
 }
 
+void append_split(char** buf, int* offset, threads_stats t_stats, time_stats tm_stats) {
+    int i = 0;
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Req-Arrival:: %ld.%06ld\r\n",
+                      tm_stats.task_arrival.tv_sec, tm_stats.task_arrival.tv_usec);
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Req-Dispatch:: %ld.%06ld\r\n",
+                       tm_stats.task_dispatch.tv_sec, tm_stats.task_dispatch.tv_usec);
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Log-Arrival:: ");
+
+    i++;
+    offset[i] += sprintf(buf[i] + offset[i], "\r\nStat-Log-Dispatch:: ");
+
+    i++;
+    offset[i] += sprintf(buf[i] + offset[i], "\r\nStat-Thread-Id:: %d\r\n", t_stats->id);
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Thread-Count:: %d\r\n", t_stats->total_req);
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Thread-Static:: %d\r\n", t_stats->stat_req);
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Thread-Dynamic:: %d\r\n", t_stats->dynm_req);
+    offset[i] += sprintf(buf[i] + offset[i], "Stat-Thread-Post:: %d\r\n\r\n\r\n", t_stats->post_req);
+}
+
 void requestError(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg, time_stats tm_stats, threads_stats t_stats)
 {
     char buf[MAXLINE], body[MAXBUF];
@@ -176,20 +195,53 @@ void requestHandle(int fd, time_stats tm_stats, threads_stats t_stats, server_lo
             sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");
         }
 
+        /*
+         * String handling is slow. To reduce the time we hold the lock we will modify
+         * append_stats() into append_split() to do the following:
+         * 1. Pre-format most of the log entry into 3 buffers (buf[0], buf[1], buf[2]):
+         * - buf[0]: Req stats ending at "... Stat-Log-Arrival:: "
+         * - buf[1]: "\r\nStat-Log-Dispatch:: "
+         * - buf[2]: "\r\n" followed by the thread stats (rest of the data)
+         * 2. Lock
+         * 3. Capture timestamps and format only the time values
+         * 4. Stitch everything using memcpy (memory-bound)
+         * 5. Write and unlock.
+         */
+        char entry1[MAXBUF];
+        char entry2[MAXBUF];
+        char entry3[MAXBUF];
+        char time_str[64];
+        entry1[0] = '\0'; entry2[0] = '\0'; entry3[0] = '\0';
+        char* buffers[] = {entry1, entry2, entry3};
+        int offsets[] = {0, 0, 0};
+        append_split(buffers,offsets,t_stats,tm_stats);
+        char final_entry[MAXBUF * 3];
+        char *ptr = final_entry;
+
         gettimeofday(&tm_stats.log_enter, NULL);
+        writer_lock(log);
         gettimeofday(&tm_stats.log_exit, NULL);
-        tm_stats.log_exit.tv_sec += get_log_sleep(log);
-        char log_entry[MAXBUF];
-        log_entry[0] = '\0';
-        append_stats(log_entry,t_stats,tm_stats);
-        add_to_log(log, log_entry, strlen(log_entry));
-        gettimeofday(&tm_stats.log_exit, NULL); // TODO: handle wrong log_exit in the log
+        int time_len = sprintf(time_str, "%ld.%06ld",
+                               tm_stats.log_enter.tv_sec, tm_stats.log_enter.tv_usec);
+        memcpy(ptr, buffers[0], offsets[0]); ptr += offsets[0];
+        memcpy(ptr, time_str, time_len); ptr += time_len;
+        memcpy(ptr, buffers[1], offsets[1]); ptr += offsets[1];
+
+        time_len = sprintf(time_str, "%ld.%06ld",
+                               tm_stats.log_exit.tv_sec, tm_stats.log_exit.tv_usec);
+        memcpy(ptr, time_str, time_len); ptr += time_len;
+        memcpy(ptr, buffers[2], offsets[2]); ptr += offsets[2];
+        *ptr = '\0';
+        add_to_log(log, final_entry, ptr - final_entry);
+        writer_unlock(log);
 
     } else if (strcasecmp(method, "POST") == 0) {
         t_stats->post_req++;
         gettimeofday(&tm_stats.log_enter,NULL);
-        body_len = get_log(log, (char**)&body_content);
+        reader_lock(log);
         gettimeofday(&tm_stats.log_exit,NULL);
+        body_len = get_log(log, (char**)&body_content);
+        reader_unlock(log);
 
         sprintf(resp_headers, "HTTP/1.0 200 OK\r\n");
         sprintf(resp_headers + strlen(resp_headers), "Server: OS-HW3 Web Server\r\n");

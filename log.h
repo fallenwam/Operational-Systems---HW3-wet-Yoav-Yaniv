@@ -22,9 +22,17 @@ void destroy_log(server_log log);
 // NOTE: caller is responsible for freeing dst
 int get_log(server_log log, char** dst);
 
+void reader_lock(server_log log);
+
+void reader_unlock(server_log log);
+
 // Appends a new entry to the log
 void add_to_log(server_log log, const char* data, int data_len);
 
 int get_log_sleep(server_log log);
+
+void writer_lock(server_log log);
+
+void writer_unlock(server_log log);
 
 #endif // SERVER_LOG_H
