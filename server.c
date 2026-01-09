@@ -63,8 +63,6 @@ void getargs(int *port, int *threads, int *queue_size, float *debug_sleep,
              int argc, char *argv[])
 {
     if (argc < 5) {
-        // fprintf(stderr, "Usage: %s <portnum> <threads> <queue_size> <debug_sleep_time>\n",
-        //         argv[0]);
         exit(0);
     }
 
@@ -72,25 +70,21 @@ void getargs(int *port, int *threads, int *queue_size, float *debug_sleep,
 
     *port = (int)strtol(argv[1], &endptr, 10);
     if (*endptr != '\0') {
-        // fprintf(stderr, "Invalid port: %s (must be an integer)\n", argv[1]);
         exit(0);
     }
 
     *threads = (int)strtol(argv[2], &endptr, 10);
     if (*endptr != '\0') {
-        // fprintf(stderr, "Invalid thread count: %s\n", argv[2]);
         exit(0);
     }
 
     *queue_size = (int)strtol(argv[3], &endptr, 10);
     if (*endptr != '\0') {
-        // fprintf(stderr, "Invalid queue size: %s\n", argv[3]);
         exit(0);
     }
 
     *debug_sleep = (float)strtod(argv[4], &endptr);
     if (*endptr != '\0') {
-        // fprintf(stderr, "Invalid sleep time: %s\n", argv[4]);
         exit(0);
     }
 }
